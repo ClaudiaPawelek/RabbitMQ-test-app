@@ -1,0 +1,3 @@
+#!/bin/bash
+rabbitmqadmin -f tsv -q list connections name > c.txt
+while read -r name; do rabbitmqadmin -q close connection name="${name}"; done < c.txt
