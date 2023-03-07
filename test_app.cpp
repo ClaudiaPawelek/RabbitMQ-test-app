@@ -200,7 +200,11 @@ public:
     void Stop()
     {
         // Disable the message sending event
-        event_del(message_event_);
+        if (message_event_)
+        {
+            event_del(message_event_);
+            message_event_ = nullptr;
+        }
         // Stop the connection handler and event loop
         conn_handler_->Stop();
         if (event_loop_thread_.joinable())
@@ -208,6 +212,7 @@ public:
             event_loop_thread_.join();
         }
     }
+
     void SendMessage(const std::string& messageBody)
     {
         // Add the message to the message queue
@@ -223,23 +228,31 @@ private:
     static void OnSendMessage(evutil_socket_t fd, short events, void* arg)
     {
         auto self = reinterpret_cast<RabbitMQTransmitter*>(arg);
-        while (!self->message_queue_.empty())
+        if (events & EV_TIMEOUT)
         {
-            const std::string& messageBody = self->message_queue_.front();
-            try
+            std::cout << "OnSendMessage: timeout" << std::endl;
+            return;
+        }
+        if (events & EV_WRITE)
+        {
+            while (!self->message_queue_.empty())
             {
-                AMQP::Envelope envelope(messageBody.c_str(), messageBody.size());
-                if (self->conn_handler_->isConnectionReady())
+                const std::string& messageBody = self->message_queue_.front();
+                try
                 {
-                    std::cout<<"publish!";
-                    self->channel_->publish(self->exchangeName_, "", envelope);
+                    AMQP::Envelope envelope(messageBody.c_str(), messageBody.size());
+                    if (self->conn_handler_->isConnectionReady())
+                    {
+                        std::cout<<"publish!";
+                        self->channel_->publish(self->exchangeName_, "", envelope);
+                    }
                 }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "Failed to send message: " << e.what() << std::endl;
+                }
+                self->message_queue_.pop();
             }
-            catch (const std::exception& e)
-            {
-                std::cerr << "Failed to send message: " << e.what() << std::endl;
-            }
-            self->message_queue_.pop();
         }
     }
 
